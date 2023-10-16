@@ -5,6 +5,7 @@ use websocket::url::Url;
 use serde;  
 use std::io;
 use std::io::BufRead;
+use std::fs::File;
 
 #[derive(serde::Deserialize)]
 struct ExpositionResponse {
@@ -18,6 +19,23 @@ struct ExpositionResponse {
     webSocketDebuggerUrl: String,
 }
 
+#[derive(serde::Serialize)]
+struct PayLoadRequestBody {
+   id: u8,
+   method: String,
+   params: PayLoadRequestParams,
+}
+#[derive(serde::Serialize)]
+struct PayLoadRequestParams {
+    contextId: u8,
+    doNotPauseOnExceptionsAndMuteConsole: bool,
+    expression: String,
+    generatePreview: bool,
+    includeCommandLineAPI: bool,
+    objectGroup: String,
+    returnByValue: bool,
+    userGesture: bool,
+}
 
 #[derive(Debug)]
 enum ExpositionError {
@@ -71,8 +89,31 @@ fn main() {
     }
     let webSocketDebuggerUrl: Url = exposeWebSocketDebuggerUrl().expect("Exposition Error");
     let mut webSocketConnection: websocket::client::sync::Client<websocket::stream::sync::TcpStream> = buildWebSocketConnection(webSocketDebuggerUrl).expect("Websocket Error");
+    let petsjs = File::open("pets.js").expect("FileRead Error");
+    let mut petsjs_handle = io::BufReader::new(petsjs);
+    let mut petsjs_text: String = String::new();
+    for line in petsjs_handle.lines() {
+       petsjs_text += &line.unwrap(); // probably won't recieve an error here??
+    }
+    println!("{}", petsjs_text);
     // This is the payload, edit this
-    let injectorJSONDataPayload: websocket::Message = websocket::Message::text(r#"{"id": 1, "method": "Runtime.evaluate", "params": {"contextId": 1, "doNotPauseOnExceptionsAndMuteConsole": false, "expression": "document.writeln(\"We are now coding\")", "generatePreview": false, "includeCommandLineAPI": true, "objectGroup": "console", "returnByValue": false, "userGesture": true}}"#);
+    // TODO: implement macro to convert &str to String?
+    let JSONPayloadObject: PayLoadRequestBody = PayLoadRequestBody {
+       id: 1,
+       method: String::from("Runtime.evaluate"),
+       params: PayLoadRequestParams {
+           contextId: 1,
+           doNotPauseOnExceptionsAndMuteConsole: false,
+           expression: String::from("document.write(\"boneless bangus\")"),
+           generatePreview: false,
+           includeCommandLineAPI: true,
+           objectGroup: String::from("console"),
+           returnByValue: false,
+           userGesture: true,
+       },
+    };
+    let textPayloadObject = serde_json::to_string(&JSONPayloadObject).unwrap();
+    let injectorJSONDataPayload: websocket::Message = websocket::Message::text(textPayloadObject);
     webSocketConnection.send_message(&injectorJSONDataPayload).expect("Send Error");
     let response = webSocketConnection.recv_message().expect("Recv Error"); // probably won't need this
 }
