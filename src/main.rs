@@ -1,9 +1,10 @@
 use websocket;
 use reqwest;
-use std::process::Command;
+use std::process::{Command,Stdio};
 use websocket::url::Url;
 use serde;  
-use std::{thread, time};
+use std::io;
+use std::io::BufRead;
 
 #[derive(serde::Deserialize)]
 struct ExpositionResponse {
@@ -17,11 +18,13 @@ struct ExpositionResponse {
     webSocketDebuggerUrl: String,
 }
 
+
+#[derive(Debug)]
 enum ExpositionError {
     ParseError(websocket::client::ParseError),
     ReqwestError(reqwest::Error),
 }
-
+#[derive(Debug)]
 enum ConnectionError {
     ParseError(websocket::client::ParseError),
     WebSocketError(websocket::WebSocketError),
@@ -50,25 +53,24 @@ impl From<websocket::WebSocketError> for ConnectionError {
 }
 
 fn main() {
-    let _handle = Command::new(r"C:\Users\Reilley Pfrimmer\AppData\Local\Discord\app-1.0.9018\Discord.exe") // REMEMBER TO FUCKING CHANGE THIS BEFORE SHIPPING LOL (otherwise it will only work on my computer)
+    let mut handle = Command::new(r"C:\Users\Reilley Pfrimmer\AppData\Local\Discord\app-1.0.9019\Discord.exe") // REMEMBER TO FUCKING CHANGE THIS BEFORE SHIPPING LOL (otherwise it will only work on my computer)
         .arg("--remote-debugging-port=9222")
+        .stdout(Stdio::piped())
         .spawn()
-        .expect("Failed to open Discord.Exe"); // I'm keeping the handle just for the lols.
-    thread::sleep(time::Duration::from_secs(25)); // TODO figure out a better way to detect when discord loads because this is shitty as FUCK
-    let webSocketDebuggerUrl: Url = match exposeWebSocketDebuggerUrl() { 
-        Ok(a) => a, // Retrieve webSocketDebuggerUrl from json endpoint
-        Err(e) => match e {
-            ExpositionError::ParseError(e) => panic!("expose: ParseError! {e:?}"),
-            ExpositionError::ReqwestError(e) => panic!("expose: ReqwestError! {e:?}"),
-        },
-    };
-    let mut webSocketConnection: websocket::client::sync::Client<websocket::stream::sync::TcpStream> = match buildWebSocketConnection(webSocketDebuggerUrl.clone()) {
-        Ok(a) => a, // establish connection with websocket using webSocketDebuggerUrl
-        Err(e) => match e {
-            ConnectionError::ParseError(e) => panic!("connect: ParseError! {e:?}"),
-            ConnectionError::WebSocketError(e) => panic!("connect: WebSocketError! {e:?}"),
-        },
-    };
+        .expect("Failed to open Discord.Exe");
+    let handle_stdout = handle.stdout.take().expect("Stdout Error");
+    let mut reader = io::BufReader::new(handle_stdout).lines();
+    loop {
+        if let Some(x) = reader.next() {
+            if let Ok(line) = x {
+               if line.contains("splashScreen.pageReady") {
+                   break;
+               }
+            }
+        }
+    }
+    let webSocketDebuggerUrl: Url = exposeWebSocketDebuggerUrl().expect("Exposition Error");
+    let mut webSocketConnection: websocket::client::sync::Client<websocket::stream::sync::TcpStream> = buildWebSocketConnection(webSocketDebuggerUrl).expect("Websocket Error");
     // This is the payload, edit this
     let injectorJSONDataPayload: websocket::Message = websocket::Message::text(r#"{"id": 1, "method": "Runtime.evaluate", "params": {"contextId": 1, "doNotPauseOnExceptionsAndMuteConsole": false, "expression": "document.writeln(\"We are now coding\")", "generatePreview": false, "includeCommandLineAPI": true, "objectGroup": "console", "returnByValue": false, "userGesture": true}}"#);
     webSocketConnection.send_message(&injectorJSONDataPayload).expect("Send Error");
